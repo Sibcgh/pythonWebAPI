@@ -5,60 +5,68 @@ import sqlite3
 app = flask.Flask(__name__)
 app.config["DEBUG"] = True
 
-# Create some test data for the catalog in the form of a list of dictionaries.
-books = [
-    {'id': 0,
-     'title': 'Name of the Wind',
-     'author': 'Patrick Rothfuss',
-     'year_published': '2007'},
-    {'id': 1,
-     'title': 'Way of Kings',
-     'author': 'Brandon Sanderson',
-     'published': '2010'},
-    {'id': 2,
-     'title': 'Dune',
-     'author': 'Frank Herbert',
-     'published': '1965'},
-    {'id': 3,
-     'title': 'nyeah',
-     'author': 'eh',
-     'published': '2019'}
-]
+
+def dict_factory(cursor, row):
+    d = {}
+    for idx, col in enumerate(cursor.description):
+        d[col[0]] = row[idx]
+    return d
 
 # Main web page
 @app.route('/', methods=['GET'])
 def home():
     return '''<h1>Distant Reading Archive</h1>
-<p>A prototype API for getting data about Fantasy books.</p>'''
+<p>A prototype API for getting data about SciFi books.</p>'''
 
 
 # A route to return all of the available entries in our catalog.
+
 @app.route('/api/v1/resources/books/all', methods=['GET'])
 def api_all():
-    return jsonify(books)
+    conn = sqlite3.connect('books.db')
+    conn.row_factory = dict_factory
+    cur = conn.cursor()
+    all_books = cur.execute('SELECT * FROM books;').fetchall()
+
+    return jsonify(all_books)
+
+# Error handing for item note found
+@app.errorhandler(404)
+def page_not_found(e):
+    return "<h1>404</h1><p>The resource could not be found.</p>", 404
 
 
 @app.route('/api/v1/resources/books', methods=['GET'])
-def api_id():
-    # Check if an ID was provided as part of the URL.
-    # If ID is provided, assign it to a variable.
-    # If no ID is provided, display an error in the browser.
-    if 'id' in request.args :
-        id = int(request.args['id'])
-    else:
-        return "Error: No id field provided. Please specify an id."
+def api_filter():
+    query_parameters = request.args
 
-    # Create an empty list for our results
-    results = []
+    id = query_parameters.get('id')
+    published = query_parameters.get('published')
+    author = query_parameters.get('author')
 
-    # Loop through the data and match results that fit the requested ID.
-    # IDs are unique, but other fields might return many results
-    for book in books:
-        if book['id'] == id:
-            results.append(book)
+    query = "SELECT * FROM books WHERE"
+    to_filter = []
 
-    # Use the jsonify function from Flask to convert our list of
-    # Python dictionaries to the JSON format.
+    if id:
+        query += ' id=? AND'
+        to_filter.append(id)
+    if published:
+        query += ' published=? AND'
+        to_filter.append(published)
+    if author:
+        query += ' author=? AND'
+        to_filter.append(author)
+    if not (id or published or author):
+        return page_not_found(404)
+
+    query = query[:-4] + ';'
+
+    conn = sqlite3.connect('books.db')
+    conn.row_factory = dict_factory
+    cur = conn.cursor()
+
+    results = cur.execute(query, to_filter).fetchall()
+
     return jsonify(results)
 
 app.run()
